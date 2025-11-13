@@ -185,6 +185,7 @@ contract CoinPredictionStaking is ReentrancyGuard {
 
         // mark inactive and update totalStaked
         stakes[msg.sender][index].active = false;
+        stakes[msg.sender][index].claimedRewards += reward; 
         totalStaked -= s.amount;
 
         token.safeTransfer(msg.sender, totalReturn);
