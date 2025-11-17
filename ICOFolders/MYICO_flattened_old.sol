@@ -1,5 +1,10 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.24;
+
+// File: @openzeppelin/contracts/utils/Context.sol
+
+
+// OpenZeppelin Contracts (last updated v5.0.1) (utils/Context.sol)
+
+pragma solidity ^0.8.20;
 
 /**
  * @dev Provides information about the current execution context, including the
@@ -29,6 +34,8 @@ abstract contract Context {
 
 
 // OpenZeppelin Contracts (last updated v5.0.0) (access/Ownable.sol)
+
+pragma solidity ^0.8.20;
 
 
 /**
@@ -130,6 +137,7 @@ abstract contract Ownable is Context {
 
 // OpenZeppelin Contracts (last updated v4.9.0) (security/ReentrancyGuard.sol)
 
+pragma solidity ^0.8.0;
 
 /**
  * @dev Contract module that helps prevent reentrant calls to a function.
@@ -209,6 +217,7 @@ abstract contract ReentrancyGuard {
 
 // OpenZeppelin Contracts (last updated v5.4.0) (token/ERC20/IERC20.sol)
 
+pragma solidity >=0.4.16;
 
 /**
  * @dev Interface of the ERC-20 standard as defined in the ERC.
@@ -290,6 +299,7 @@ interface IERC20 {
 
 // OpenZeppelin Contracts (last updated v5.4.0) (token/ERC20/extensions/IERC20Metadata.sol)
 
+pragma solidity >=0.6.2;
 
 
 /**
@@ -317,12 +327,15 @@ interface IERC20Metadata is IERC20 {
 
 // OpenZeppelin Contracts (last updated v5.4.0) (interfaces/IERC20.sol)
 
+pragma solidity >=0.4.16;
+
 
 // File: @openzeppelin/contracts/utils/introspection/IERC165.sol
 
 
 // OpenZeppelin Contracts (last updated v5.4.0) (utils/introspection/IERC165.sol)
 
+pragma solidity >=0.4.16;
 
 /**
  * @dev Interface of the ERC-165 standard, as defined in the
@@ -350,11 +363,16 @@ interface IERC165 {
 
 // OpenZeppelin Contracts (last updated v5.4.0) (interfaces/IERC165.sol)
 
+pragma solidity >=0.4.16;
+
 
 // File: @openzeppelin/contracts/interfaces/IERC1363.sol
 
 
 // OpenZeppelin Contracts (last updated v5.4.0) (interfaces/IERC1363.sol)
+
+pragma solidity >=0.6.2;
+
 
 
 /**
@@ -440,6 +458,8 @@ interface IERC1363 is IERC20, IERC165 {
 
 
 // OpenZeppelin Contracts (last updated v5.3.0) (token/ERC20/utils/SafeERC20.sol)
+
+pragma solidity ^0.8.20;
 
 
 
@@ -651,6 +671,8 @@ library SafeERC20 {
 // File: @chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol
 
 
+pragma solidity ^0.8.0;
+
 interface AggregatorV3Interface {
   function decimals() external view returns (uint8);
 
@@ -669,6 +691,12 @@ interface AggregatorV3Interface {
 }
 
 // File: ICOFolders/MYICO.sol
+
+
+pragma solidity ^0.8.24;
+
+
+
 
 
 
@@ -810,62 +838,6 @@ interface ISRXICO {
     ) external view returns (Contributor memory);
 }
 
-interface ICoinPredictionStaking {
-    struct Stake {
-        uint256 amount;
-        uint256 startTime;
-        uint256 claimedRewards;
-        bool active;
-        uint256 stakeApr;
-        address stakeBy;
-    }
-
-    struct PendingReward {
-        bool stakeStatus;
-        bool unstakable;
-        uint256 pendingReward;
-    }
-
-    // --- View Functions ---
-    function token() external view returns (address);
-
-    function unlocked() external view returns (bool);
-
-    function apr() external view returns (uint256);
-
-    function minStakeDuration() external view returns (uint256);
-
-    function maxStakeDuration() external view returns (uint256);
-
-    function getUserStakesCount(address user) external view returns (uint256);
-
-    function getUserStakes(address user) external view returns (Stake[] memory);
-
-    function getUserPendingReward(
-        address user
-    ) external view returns (PendingReward[] memory);
-
-    // --- Core Actions ---
-    function stake(uint256 amount, address stakeFor, address stakeBy) external;
-
-    function claimReward(uint256 index) external;
-
-    function unstake(uint256 index) external;
-
-    // --- Admin ---
-    function setMinDuration(uint256 newMinDurationYears) external;
-
-    function setMaxDuration(uint256 newMaxDurationYears) external;
-
-    function setApr(uint256 newAprBasisPoints) external;
-
-    function withdrawUnusedTokens() external;
-
-    function transferOwnership(address newOwner) external;
-
-    function toggleLock() external;
-}
-
 contract MYICO is ISRXICO, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -883,7 +855,6 @@ contract MYICO is ISRXICO, Ownable, ReentrancyGuard {
     bool public isInitialized;
     IERC20 public saleToken;
     IReferral public referralContract;
-    ICoinPredictionStaking public stakingContract;
 
     uint8 private constant _NATIVE_COIN_DECIMALS = 18; // EVM only
     uint256 public exchangelaunchDate;
@@ -892,8 +863,7 @@ contract MYICO is ISRXICO, Ownable, ReentrancyGuard {
 
     function initialize(
         address saleToken_,
-        address referralContract_,
-        address stakeAddress_
+        address referralContract_
     ) public onlyOwner {
         if (isInitialized) {
             revert AlreadyInitialize();
@@ -905,7 +875,6 @@ contract MYICO is ISRXICO, Ownable, ReentrancyGuard {
         exchangelaunchDate = 1803902400; /// 1st March 2027
         saleToken = IERC20(saleToken_);
         referralContract = IReferral(referralContract_);
-        stakingContract = ICoinPredictionStaking(stakeAddress_);
     }
 
     function updatereferralContract(
@@ -1307,14 +1276,7 @@ contract MYICO is ISRXICO, Ownable, ReentrancyGuard {
             saleDetail_.saleTokenOption == SaleTokenOption.InstantTokenReceive
         ) {
             // Direct transfer
-            // saleToken.safeTransfer(account_, tokenAmount_);
-            bool success = saleToken.approve(
-                address(stakingContract),
-                tokenAmount_
-            );
-            require(success, "TOKEN_APPROVE_FAILED");
-
-            stakingContract.stake(tokenAmount_, account_, address(this));
+            saleToken.safeTransfer(account_, tokenAmount_);
         } else {
             // Store claimable for later (single fallback condition)
             _user2SaleType2ClaimableDetail[account_][saleType_]
@@ -1343,14 +1305,7 @@ contract MYICO is ISRXICO, Ownable, ReentrancyGuard {
         ) {
             _user2SaleType2ClaimableDetail[caller_][saleType_]
                 .claimed = claimable_.amount;
-            // saleToken.safeTransfer(caller_, claimable_.amount);
-            bool success = saleToken.approve(
-                address(stakingContract),
-                claimable_.amount
-            );
-            require(success, "TOKEN_APPROVE_FAILED");
-
-            stakingContract.stake(claimable_.amount, caller_, address(this));
+            saleToken.safeTransfer(caller_, claimable_.amount);
         } else {
             revert InvalidOptionForTokenReceive();
         }

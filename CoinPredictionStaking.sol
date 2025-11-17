@@ -32,6 +32,7 @@ contract CoinPredictionStaking is ReentrancyGuard {
         uint256 claimedRewards;
         bool active;
         uint256 stakeApr; // @dev for a perticular stake apr remains constant changes will be applied on later stakes
+        address stakeBy;
     }
 
     struct PendingReward {
@@ -42,7 +43,7 @@ contract CoinPredictionStaking is ReentrancyGuard {
 
     mapping(address => Stake[]) private stakes;
 
-    event Staked(address indexed user, uint256 amount);
+    event Staked(address indexed stakeFor, address indexed stakeBy, uint256 amount);
     event RewardClaimed(address indexed user, uint256 amount);
     event Unstaked(address indexed user, uint256 amount, uint256 rewards);
     event OwnershipTransferred(
@@ -91,25 +92,30 @@ contract CoinPredictionStaking is ReentrancyGuard {
         emit LockToggled(unlocked);
     }
 
-    function stake(uint256 amount) external nonReentrant {
+    function stake(
+        uint256 amount,
+        address stakeFor,
+        address stakeBy
+    ) external nonReentrant {
         require(unlocked, "Staking paused");
         require(amount > 0, "Invalid amount");
 
-        token.safeTransferFrom(msg.sender, address(this), amount);
+        token.safeTransferFrom(stakeBy, address(this), amount);
 
-        stakes[msg.sender].push(
+        stakes[stakeFor].push(
             Stake({
                 amount: amount,
                 startTime: block.timestamp,
                 claimedRewards: 0,
                 active: true,
-                stakeApr: apr
+                stakeApr: apr,
+                stakeBy: stakeBy
             })
         );
 
         totalStaked += amount;
 
-        emit Staked(msg.sender, amount);
+        emit Staked(stakeFor, stakeBy, amount);
     }
 
     function getUserPendingReward(
@@ -185,7 +191,7 @@ contract CoinPredictionStaking is ReentrancyGuard {
 
         // mark inactive and update totalStaked
         stakes[msg.sender][index].active = false;
-        stakes[msg.sender][index].claimedRewards += reward; 
+        stakes[msg.sender][index].claimedRewards += reward;
         totalStaked -= s.amount;
 
         token.safeTransfer(msg.sender, totalReturn);
