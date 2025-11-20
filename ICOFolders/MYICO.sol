@@ -467,7 +467,8 @@ contract MYICO is ISRXICO, Ownable, ReentrancyGuard {
         SaleType saleType_,
         address token_,
         uint256 amount_,
-        address referrer_
+        address referrer_,
+        address user_ 
     ) public payable nonReentrant {
         if (!getPaymentOption(token_).enable) {
             revert UnsupportedPaymentOptions();
@@ -479,7 +480,6 @@ contract MYICO is ISRXICO, Ownable, ReentrancyGuard {
         if (block.timestamp > saleDetail_.endAt) {
             revert SaleEnded();
         }
-        address user_ = _msgSender();
         uint256 amountInUsd_ = getPaymentOption(token_).isStable
             ? amount_
             : calculateUSDAmount(
