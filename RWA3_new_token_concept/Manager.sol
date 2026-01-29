@@ -5,24 +5,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
 import {IIdentityRegistry} from "./interfaces/IIdentityRegistry.sol";
 import {ILegalRegistry} from "./interfaces/ILegalRegistry.sol";
-
-/**
- * @title IRWAToken
- * @dev Interface for clone initialization.
- */
-interface IRWAToken {
-    struct InitParams {
-        string name;
-        string symbol;
-        uint256 assetId;
-        address identityRegistry;
-        address[] initialOwners;
-        uint256[] initialOwnersBalance;
-        address propertyManager;
-    }
-
-    function initialize(InitParams calldata params) external;
-}
+import {IRwaToken} from "./interfaces/IRwaToken.sol";
 
 /*===============================MANAGER===============================*/
 
@@ -112,87 +95,55 @@ contract RwaManager is Ownable {
      * @notice Creates and initializes an RWA token for an approved asset.
      */
     function createRwa(
-        string memory name,
-        string memory symbol,
+        string calldata name,
+        string calldata symbol,
         uint256 assetId,
-        address[] calldata initialOwners,
-        uint256[] calldata mintAmounts
+        uint256 cap,
+        uint256 price
     ) external returns (address token) {
-        /* ---------- Legal Checks ---------- */
+        /* ---------- Legal Approval ---------- */
         if (!legalRegistry.isAssetApproved(assetId)) revert AssetNotApproved();
         if (rwaByAsset[assetId] != address(0)) revert AlreadyTokenized();
 
         /* ---------- Fetch Asset ---------- */
         (
             address propertyOwner,
-            string memory assetCountry,
+            ,
             ,
             ILegalRegistry.AssetStatus status
         ) = legalRegistry.getAsset(assetId);
 
         if (propertyOwner == address(0)) revert ZeroAddress();
-        if (propertyOwner != _msgSender())
-            revert NotPrpertyOwner(_msgSender(), assetId);
+        if (propertyOwner != msg.sender)
+            revert NotPrpertyOwner(msg.sender, assetId);
         if (status != ILegalRegistry.AssetStatus.APPROVED)
             revert AssetNotApproved();
 
-        /* ---------- Property Owner Compliance ---------- */
+        /* ---------- Identity & Jurisdiction ---------- */
         if (!identityRegistry.hasValidIdentity(propertyOwner))
             revert IdentityMissing(propertyOwner);
 
-        IIdentityRegistry.Identity memory ownerId = identityRegistry
-            .getIdentity(propertyOwner);
+        // Validate jurisdiction against LegalRegistry rules
+        legalRegistry.validateJurisdiction(propertyOwner, assetId);
 
-        if (
-            keccak256(bytes(ownerId.countryCode)) !=
-            keccak256(bytes(assetCountry))
-        ) {
-            revert CountryMismatch(
-                propertyOwner,
-                ownerId.countryCode,
-                assetCountry
-            );
-        }
-
-        /* ---------- Distribution Validation ---------- */
-        uint256 len = initialOwners.length;
-        if (len == 0 || len != mintAmounts.length) revert InvalidDistribution();
-
-        for (uint256 i = 0; i < len; i++) {
-            address investor = initialOwners[i];
-            if (investor == address(0)) revert ZeroAddress();
-            if (!identityRegistry.hasValidIdentity(investor))
-                revert IdentityMissing(investor);
-
-            IIdentityRegistry.Identity memory investorId = identityRegistry
-                .getIdentity(investor);
-
-            if (
-                keccak256(bytes(investorId.countryCode)) !=
-                keccak256(bytes(assetCountry))
-            ) {
-                revert CountryMismatch(
-                    investor,
-                    investorId.countryCode,
-                    assetCountry
-                );
-            }
-        }
+        /* ---------- Parameters ---------- */
+        if (cap == 0) revert InvalidDistribution();
+        if (price == 0) revert InvalidDistribution();
 
         /* ---------- Deploy Clone ---------- */
         token = rwaImplementation.clone();
 
-        IRWAToken.InitParams memory params = IRWAToken.InitParams({
+        IRwaToken.InitParams memory params = IRwaToken.InitParams({
             name: name,
             symbol: symbol,
             assetId: assetId,
             identityRegistry: address(identityRegistry),
-            initialOwners: initialOwners,
-            initialOwnersBalance: mintAmounts,
+            cap: cap,
+            price: price,
             propertyManager: propertyOwner
         });
 
-        IRWAToken(token).initialize(params);
+        IRwaToken(token).initialize(params);
 
         rwaByAsset[assetId] = token;
         _allRWATokens.push(token);

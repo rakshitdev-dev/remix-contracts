@@ -28,9 +28,9 @@ contract RwaToken is
 
     uint256 public assetId;
     IIdentityRegistry public identityRegistry;
-    uint256 cap;
+    uint256 public cap;
     uint256 price;
-    uint256 rentAmount;
+    // uint256 rentAmount;
 
     /*===============================ERRORS===============================*/
 
@@ -44,6 +44,10 @@ contract RwaToken is
         string toCountry
     );
     error CapLimitVoilated(uint256 difference);
+
+    /*===============================EVENTS===============================*/
+
+    event PriceChanged(uint256 oldPrice, uint256 newPrice);
 
     /*===============================INIT PARAMS===============================*/
 
@@ -67,7 +71,11 @@ contract RwaToken is
         if (params.identityRegistry == address(0)) revert ZeroAddress();
         if (params.propertyManager == address(0)) revert ZeroAddress();
 
+        require(params.cap > 0, "Cap can't be 0");
         cap = params.cap;
+
+        require(params.price > 0, "Price can't be 0");
+        price = params.price;
 
         __ERC20_init(params.name, params.symbol);
         __Ownable_init(msg.sender);
@@ -148,6 +156,27 @@ contract RwaToken is
 
     /*===============================Invest===============================*/
 
+    /**
+     * @notice Invests ETH to mint RWA tokens at the current price.
+     *
+     * @dev
+     * - Token minting is capped by `cap` via `_update`
+     * - Identity is NOT enforced here because minting
+     *   bypasses identity checks in `_update`
+     * - Identity enforcement starts from secondary transfers
+     * - ETH is forwarded directly to the property manager (owner)
+     *
+     * @param account Address receiving the minted RWA tokens
+     * @param value   Amount of tokens to mint (in token decimals)
+     *
+     * Requirements:
+     * - `value` must not exceed remaining cap
+     * - Caller must send exact ETH equivalent via `msg.value`
+     *
+     * Security notes:
+     * - Relies on owner being a trusted property manager
+     * - Not suitable for permissionless public minting
+     */
     function invest(address account, uint256 value) public {
         uint256 cost = (value / (10 ** decimals())) * price;
         (bool status, ) = owner().call{value: cost}("");
@@ -155,11 +184,18 @@ contract RwaToken is
         _mint(account, value);
     }
 
-    /*=============================== Rent System ===============================*/
-
-    function payRent() public{
-
+    function setPrice(uint256 _price) public onlyOwner {
+        require(_price > 0, "INVALID_PRICE");
+        uint256 oldP = price;
+        price = _price;
+        emit PriceChanged(oldP, _price);
     }
+
+    // /*=============================== Rent System ===============================*/
+
+    // function payRent() public{
+
+    // }
 
     /*===============================RECEIVE===============================*/
 
