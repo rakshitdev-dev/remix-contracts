@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.20;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import {IIdentityRegistry} from "./interfaces/IIdentityRegistry.sol";
-
+import {ERC20Snapshot} from "./snapshot.sol";
 /*===============================TOKEN===============================*/
 
 /**
@@ -21,6 +21,7 @@ import {IIdentityRegistry} from "./interfaces/IIdentityRegistry.sol";
 contract RwaToken is
     Initializable,
     ERC20Upgradeable,
+    ERC20Snapshot,
     OwnableUpgradeable,
     ReentrancyGuardUpgradeable
 {
@@ -29,8 +30,8 @@ contract RwaToken is
     uint256 public assetId;
     IIdentityRegistry public identityRegistry;
     uint256 public cap;
-    uint256 public price;
-    // uint256 rentAmount;
+    uint256 price;
+    uint256 public rentAmount;
 
     /*===============================ERRORS===============================*/
 
@@ -102,7 +103,7 @@ contract RwaToken is
         address from,
         address to,
         uint256 amount
-    ) internal override {
+    ) internal override(ERC20Upgradeable, ERC20Snapshot) {
         if (from == address(0) && totalSupply() + amount > cap) {
             revert CapLimitVoilated(totalSupply() + amount - cap);
         }
@@ -191,11 +192,17 @@ contract RwaToken is
         emit PriceChanged(oldP, _price);
     }
 
+
+    // function snapshot() external returns (uint256) {
+    //     return _snapshot();
+    // }
+
     // /*=============================== Rent System ===============================*/
 
-    // function payRent() public{
-
-    // }
+    function payRent() public{
+        require()
+        _snapshot()
+    }
 
     /*===============================RECEIVE===============================*/
 
