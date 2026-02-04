@@ -10,7 +10,7 @@ import {IIdentityRegistry} from "./interfaces/IIdentityRegistry.sol";
  * @dev Maintains legal jurisdiction and approval status for RWAs.
  *
  *      - Enforces jurisdiction alignment with verified user identity
- *      - Assets must be approved before tokenization
+ *      - Assets must be approved `before tokenization
  */
 contract LegalRegistry is Ownable {
     /*===============================ENUMS===============================*/

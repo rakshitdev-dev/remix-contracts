@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.23;
 
 import {IIdentityRegistry} from "./IIdentityRegistry.sol";
 
@@ -33,7 +33,7 @@ interface IRwaToken {
     function totalSupply() external view returns (uint256);
 
     function balanceOf(address account) external view returns (uint256);
-
+    function price() external view returns (uint256);
     /*===============================RWA VIEWS===============================*/
 
     function assetId() external view returns (uint256);

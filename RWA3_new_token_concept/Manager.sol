@@ -248,6 +248,51 @@ contract RwaManager is Ownable {
         }
     }
 
+    function _buildRwaInfo(
+        address tokenAddr
+    ) internal view returns (RwaInfo memory info) {
+        IRwaToken rwa = IRwaToken(tokenAddr);
+
+        uint256 assetId = rwa.assetId();
+
+        (
+            address legalOwner,
+            string[] memory countryCodes,
+            string memory documentURI,
+            ILegalRegistry.AssetStatus status
+        ) = legalRegistry.getAsset(assetId);
+
+        info = RwaInfo({
+            token: tokenAddr,
+            assetId: assetId,
+            name: rwa.name(),
+            symbol: rwa.symbol(),
+            cap: rwa.cap(),
+            price: rwa.price(),
+            propertyManager: rwa.owner(),
+            totalSupply: rwa.totalSupply(),
+            status: status,
+            documentURI: documentURI,
+            countryCodes: countryCodes,
+            legalPropertyOwner: legalOwner
+        });
+    }
+
+    function getRwaByAssetId(
+        uint256 assetId
+    ) external view returns (RwaInfo memory) {
+        address token = rwaByAsset[assetId];
+        if (token == address(0)) revert AssetNotApproved();
+        return _buildRwaInfo(token);
+    }
+
+    function getRwaByToken(
+        address token
+    ) external view returns (RwaInfo memory) {
+        if (token == address(0)) revert ZeroAddress();
+        return _buildRwaInfo(token);
+    }
+
     /*===============================ETH HANDLING===============================*/
 
     receive() external payable {}
