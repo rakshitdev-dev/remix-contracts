@@ -105,14 +105,6 @@ contract LegalRegistry is Ownable {
         string[] calldata countryCodes,
         string calldata documentURI
     ) external returns (uint256 assetId) {
-        IIdentityRegistry.Identity memory iden = identityRegistry.getIdentity(
-            msg.sender
-        );
-
-        require(
-            iden.typ != IIdentityRegistry.IDENTITYTYPE.owner,
-            "Invalid Identity type"
-        );
         assetId = _nextAssetId++;
 
         Asset storage a = assets[assetId];
@@ -138,14 +130,6 @@ contract LegalRegistry is Ownable {
         string[] calldata countryCodes,
         string calldata documentURI
     ) external {
-        IIdentityRegistry.Identity memory iden = identityRegistry.getIdentity(
-            msg.sender
-        );
-
-        require(
-            iden.typ != IIdentityRegistry.IDENTITYTYPE.owner,
-            "Invalid Identity type"
-        );
         Asset storage a = assets[assetId];
 
         if (a.status != AssetStatus.DISAPPROVED) revert InvalidStatus();

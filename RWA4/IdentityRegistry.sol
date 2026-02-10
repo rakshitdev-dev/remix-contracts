@@ -30,9 +30,14 @@ contract IdentityRegistry is Ownable {
         high
     }
 
-    enum IDENTITYTYPE {
-        investor,
-        owner
+    /**
+     * @dev Investor classification assigned off-chain by the administrator.
+     *      This enum is informational and not enforced by on-chain logic.
+     */
+    enum INVESTORCLASS {
+        retail,
+        professional,
+        accredited
     }
 
     /*===============================STRUCTS===============================*/
@@ -46,7 +51,7 @@ contract IdentityRegistry is Ownable {
         string countryCode;        // ISO / jurisdiction code (e.g., IN, US, +91)
         KYCLEVEL level;            // KYC level
         RISKSCOREBAND risk;        // Risk band
-        IDENTITYTYPE typ;
+        INVESTORCLASS class;       // Investor class
     }
 
     /*===============================STORAGE===============================*/
@@ -62,7 +67,7 @@ contract IdentityRegistry is Ownable {
         string identityURI,
         KYCLEVEL level,
         RISKSCOREBAND risk,
-        IDENTITYTYPE typ
+        INVESTORCLASS class
     );
 
     event IdentityUpdated(address indexed user);
@@ -112,7 +117,7 @@ contract IdentityRegistry is Ownable {
         string calldata countryCode,
         KYCLEVEL level,
         RISKSCOREBAND risk,
-        IDENTITYTYPE typ
+        INVESTORCLASS class
     ) external onlyOwner {
         if (user == address(0)) revert ZeroAddress();
         if (_identities[user].verifiedTill != 0)
@@ -124,7 +129,7 @@ contract IdentityRegistry is Ownable {
             countryCode: countryCode,
             level: level,
             risk: risk,
-            typ: typ
+            class: class
         });
 
         emit IdentityRegistered(
@@ -134,7 +139,7 @@ contract IdentityRegistry is Ownable {
             identityURI,
             level,
             risk,
-            typ
+            class
         );
     }
 
@@ -149,7 +154,7 @@ contract IdentityRegistry is Ownable {
         string calldata newCountryCode,
         KYCLEVEL newLevel,
         RISKSCOREBAND newRisk,
-        IDENTITYTYPE newTyp
+        INVESTORCLASS newClass
     ) external onlyOwner {
         if (_identities[user].verifiedTill == 0)
             revert IdentityDoesNotExist();
@@ -161,7 +166,7 @@ contract IdentityRegistry is Ownable {
         identity.countryCode = newCountryCode;
         identity.level = newLevel;
         identity.risk = newRisk;
-        identity.typ = newTyp;
+        identity.class = newClass;
 
         emit IdentityUpdated(user);
     }

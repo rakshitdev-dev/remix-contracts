@@ -24,20 +24,24 @@ interface IIdentityRegistry {
         high
     }
 
-    enum IDENTITYTYPE {
-        investor,
-        owner
+    enum INVESTORCLASS {
+        retail,
+        professional,
+        accredited
     }
 
     /*===============================STRUCTS===============================*/
 
+    /**
+     * @dev Represents a verified on-chain identity.
+     */
     struct Identity {
-        uint256 verifiedTill;
-        string identityURI;
-        string countryCode;
-        KYCLEVEL level;
-        RISKSCOREBAND risk;
-        IDENTITYTYPE typ;
+        uint256 verifiedTill; // Expiry timestamp
+        string identityURI; // Off-chain KYC reference
+        string countryCode; // ISO / jurisdiction code (e.g., IN, US, +91)
+        KYCLEVEL level; // KYC level
+        RISKSCOREBAND risk; // Risk band
+        INVESTORCLASS class; // Investor class
     }
 
     /*===============================VIEWS===============================*/
@@ -50,7 +54,5 @@ interface IIdentityRegistry {
     /**
      * @notice Returns full identity data for a user.
      */
-    function getIdentity(
-        address user
-    ) external view returns (Identity memory);
+    function getIdentity(address user) external view returns (Identity memory);
 }

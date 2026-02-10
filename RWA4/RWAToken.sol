@@ -5,8 +5,10 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import {IRwaManager} from "./interfaces/IRwaManager.sol";
 import {IIdentityRegistry} from "./interfaces/IIdentityRegistry.sol";
-import {ERC20Snapshot} from "./snapshot.sol";
+import {ILegalRegistry} from "./interfaces/ILegalRegistry.sol";
+import {ERC20Snapshot} from "./Snapshot.sol";
 /*===============================TOKEN===============================*/
 
 /**
@@ -28,13 +30,16 @@ contract RwaToken is
     /*===============================STORAGE===============================*/
 
     uint256 public assetId;
-    IIdentityRegistry public identityRegistry;
     uint256 public cap;
     uint256 public price;
     uint256 public rentAmount;
     mapping(uint256 => uint256) rentCollection;
     mapping(uint256 => mapping(address => bool)) public rentCollectionStatus;
     mapping(uint256 => uint256) public supplyAtSnapshot;
+    mapping(uint256 => uint256) public periodToSnapshot;
+    mapping(uint256 => uint256) public snapshotToPeriod;
+
+    IRwaManager managerContract;
 
     /*===============================ERRORS===============================*/
 
@@ -54,7 +59,7 @@ contract RwaToken is
     /*===============================EVENTS===============================*/
 
     event PriceChanged(uint256 oldPrice, uint256 newPrice);
-    event RentClaimed(uint256 month, address receiver, uint256 payout);
+    event RentClaimed(uint256 period, address receiver, uint256 payout);
 
     /*===============================INIT PARAMS===============================*/
 
@@ -62,7 +67,7 @@ contract RwaToken is
         string name;
         string symbol;
         uint256 assetId;
-        address identityRegistry;
+        address managerContract;
         uint256 cap;
         uint256 price;
         address propertyManager;
@@ -75,7 +80,7 @@ contract RwaToken is
      * @dev Called once by the factory or deployer.
      */
     function initialize(InitParams calldata params) external initializer {
-        if (params.identityRegistry == address(0)) revert ZeroAddress();
+        if (params.managerContract == address(0)) revert ZeroAddress();
         if (params.propertyManager == address(0)) revert ZeroAddress();
 
         require(params.cap > 0, "Cap can't be 0");
@@ -89,9 +94,17 @@ contract RwaToken is
         __ReentrancyGuard_init();
 
         assetId = params.assetId;
-        identityRegistry = IIdentityRegistry(params.identityRegistry);
+        managerContract = IRwaManager(params.managerContract);
 
         transferOwnership(params.propertyManager);
+    }
+
+    function _legalRegistry() internal view returns (ILegalRegistry) {
+        return managerContract.legalRegistry();
+    }
+
+    function _identityRegistry() internal view returns (IIdentityRegistry) {
+        return managerContract.identityRegistry();
     }
 
     /*===============================INTERNAL FUNCTIONS overrides===============================*/
@@ -110,18 +123,21 @@ contract RwaToken is
         address to,
         uint256 amount
     ) internal override(ERC20Upgradeable, ERC20Snapshot) {
+        // Minting Cap
+        require(_legalRegistry().isAssetApproved(assetId), "ASSET_NOT_APPROVED");
         if (from == address(0) && totalSupply() + amount > cap) {
             revert CapLimitVoilated(totalSupply() + amount - cap);
         }
-        // Minting
-        if (from == address(0)) {
-            super._update(from, to, amount);
-            return;
-        }
-        if (from == address(owner())) {
-            super._update(from, to, amount);
-            return;
-        }
+
+        // // Minting
+        // if (from == address(0)) {
+        //     super._update(from, to, amount);
+        //     return;
+        // }
+        // if (from == address(owner())) {
+        //     super._update(from, to, amount);
+        //     return;
+        // }
 
         // Burning
         if (to == address(0)) {
@@ -134,29 +150,13 @@ contract RwaToken is
         }
 
         // Identity enforcement
-        if (!identityRegistry.hasValidIdentity(from))
+        if (!_identityRegistry().hasValidIdentity(from))
             revert IdentityRequired(from);
-        if (!identityRegistry.hasValidIdentity(to)) revert IdentityRequired(to);
+        if (!_identityRegistry().hasValidIdentity(to))
+            revert IdentityRequired(to);
 
-        // Jurisdiction enforcement
-        IIdentityRegistry.Identity memory fromId = identityRegistry.getIdentity(
-            from
-        );
-        IIdentityRegistry.Identity memory toId = identityRegistry.getIdentity(
-            to
-        );
-
-        if (
-            keccak256(bytes(fromId.countryCode)) !=
-            keccak256(bytes(toId.countryCode))
-        ) {
-            revert CountryTransferBlocked(
-                from,
-                to,
-                fromId.countryCode,
-                toId.countryCode
-            );
-        }
+        _legalRegistry().validateJurisdiction(from, assetId);
+        _legalRegistry().validateJurisdiction(to, assetId);
 
         super._update(from, to, amount);
     }
@@ -184,10 +184,17 @@ contract RwaToken is
      * - Relies on owner being a trusted property manager
      * - Not suitable for permissionless public minting
      */
-    function invest(address account, uint256 value) public {
-        uint256 cost = (value / (10 ** decimals())) * price;
-        (bool status, ) = owner().call{value: cost}("");
-        require(status, "ETH transfer failed");
+    function invest(address account, uint256 value) external payable {
+        _legalRegistry().validateJurisdiction(account, assetId);
+
+        uint256 tokens = value / (10 ** decimals());
+        uint256 cost = tokens * price;
+
+        require(msg.value == cost, "INVALID_ETH_AMOUNT");
+
+        (bool ok, ) = owner().call{value: msg.value}("");
+        require(ok, "ETH_TRANSFER_FAILED");
+
         _mint(account, value);
     }
 
@@ -202,16 +209,27 @@ contract RwaToken is
         rentAmount = amount;
     }
 
-    /*===============================Rent System===============================*/
-
     // function snapshot() external returns (uint256) {
     //     return _snapshot();
     // }
 
-    function payRent() external payable onlyOwner returns (uint256 snapshotId) {
+    // /*===============================Rent System===============================*/
+
+    function payRent(
+        uint16 year,
+        uint8 month
+    ) external payable onlyOwner returns (uint256 snapshotId) {
         require(msg.value >= rentAmount, "Insufficient Rent");
+        require(month >= 1 && month <= 12, "Invalid Month");
+        require(year >= 2000 && year <= 3000, "Invalid Year");
+
+        uint256 periodId = year * 100 + month;
+        require(periodToSnapshot[periodId] == 0, "Period rent paid");
 
         snapshotId = _snapshot();
+
+        periodToSnapshot[periodId] = snapshotId;
+        snapshotToPeriod[snapshotId] = periodId;
 
         rentCollection[snapshotId] = msg.value;
         supplyAtSnapshot[snapshotId] = totalSupply();
@@ -225,20 +243,25 @@ contract RwaToken is
         if (rentCollectionStatus[snapshotId][msg.sender])
             revert AlreadyClaimed();
 
-        uint256 userBalance = balanceOfAt(msg.sender, snapshotId);
+        uint256 supply = supplyAtSnapshot[snapshotId];
+
+        uint256 userBalance;
+
+        if (msg.sender == owner()) userBalance = cap - supply;
+        else userBalance = balanceOfAt(msg.sender, snapshotId);
+
         if (userBalance == 0) revert NoRentAvailable();
 
         uint256 totalRent = rentCollection[snapshotId];
-        uint256 supply = supplyAtSnapshot[snapshotId];
 
-        payout = (totalRent * userBalance) / supply;
+        payout = (totalRent * userBalance) / cap;
 
         rentCollectionStatus[snapshotId][msg.sender] = true;
 
         (bool success, ) = msg.sender.call{value: payout}("");
-        require(success, "ETH_TRANSFER_FAILED");
+        require(success, "Ether transfer failed");
 
-        emit RentClaimed(snapshotId, msg.sender, payout);
+        emit RentClaimed(snapshotToPeriod[snapshotId], msg.sender, payout);
     }
 
     /*===============================RECEIVE===============================*/
