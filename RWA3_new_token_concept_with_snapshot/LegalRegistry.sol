@@ -110,7 +110,7 @@ contract LegalRegistry is Ownable {
         );
 
         require(
-            iden.typ != IIdentityRegistry.IDENTITYTYPE.owner,
+            iden.typ == IIdentityRegistry.IDENTITYTYPE.owner,
             "Invalid Identity type"
         );
         assetId = _nextAssetId++;
@@ -143,7 +143,7 @@ contract LegalRegistry is Ownable {
         );
 
         require(
-            iden.typ != IIdentityRegistry.IDENTITYTYPE.owner,
+            iden.typ == IIdentityRegistry.IDENTITYTYPE.owner,
             "Invalid Identity type"
         );
         Asset storage a = assets[assetId];

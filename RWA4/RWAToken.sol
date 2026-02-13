@@ -33,6 +33,7 @@ contract RwaToken is
     uint256 public cap;
     uint256 public price;
     uint256 public rentAmount;
+    address public tenant;
     mapping(uint256 => uint256) rentCollection;
     mapping(uint256 => mapping(address => bool)) public rentCollectionStatus;
     mapping(uint256 => uint256) public supplyAtSnapshot;
@@ -124,16 +125,20 @@ contract RwaToken is
         uint256 amount
     ) internal override(ERC20Upgradeable, ERC20Snapshot) {
         // Minting Cap
-        require(_legalRegistry().isAssetApproved(assetId), "ASSET_NOT_APPROVED");
+        require(
+            _legalRegistry().isAssetApproved(assetId),
+            "ASSET_NOT_APPROVED"
+        );
         if (from == address(0) && totalSupply() + amount > cap) {
             revert CapLimitVoilated(totalSupply() + amount - cap);
         }
 
-        // // Minting
-        // if (from == address(0)) {
-        //     super._update(from, to, amount);
-        //     return;
-        // }
+        // Minting
+        if (from == address(0)) {
+            super._update(from, to, amount);
+            return;
+        }
+
         // if (from == address(owner())) {
         //     super._update(from, to, amount);
         //     return;
@@ -174,28 +179,27 @@ contract RwaToken is
      * - ETH is forwarded directly to the property manager (owner)
      *
      * @param account Address receiving the minted RWA tokens
-     * @param value   Amount of tokens to mint (in token decimals)
+     * @param buyAmount   Amount of tokens to mint (in token decimals)
      *
      * Requirements:
-     * - `value` must not exceed remaining cap
+     * - `buyAmount` must not exceed remaining cap
      * - Caller must send exact ETH equivalent via `msg.value`
      *
      * Security notes:
      * - Relies on owner being a trusted property manager
      * - Not suitable for permissionless public minting
      */
-    function invest(address account, uint256 value) external payable {
+    function invest(address account, uint256 buyAmount) external payable {
         _legalRegistry().validateJurisdiction(account, assetId);
 
-        uint256 tokens = value / (10 ** decimals());
-        uint256 cost = tokens * price;
+        uint256 cost = (buyAmount * price) / (10 ** decimals());
 
-        require(msg.value == cost, "INVALID_ETH_AMOUNT");
+        require(msg.value >= cost, "INVALID_ETH_AMOUNT");
 
         (bool ok, ) = owner().call{value: msg.value}("");
         require(ok, "ETH_TRANSFER_FAILED");
 
-        _mint(account, value);
+        _mint(account, buyAmount);
     }
 
     function setPrice(uint256 _price) public onlyOwner {
@@ -205,8 +209,12 @@ contract RwaToken is
         emit PriceChanged(oldP, _price);
     }
 
-    function setRentAmount(uint256 amount) external onlyOwner {
-        rentAmount = amount;
+    function setRentDetails(
+        uint256 newRentAmount,
+        address newTenant
+    ) external onlyOwner {
+        tenant = newTenant;
+        rentAmount = newRentAmount;
     }
 
     // function snapshot() external returns (uint256) {
@@ -216,12 +224,13 @@ contract RwaToken is
     // /*===============================Rent System===============================*/
 
     function payRent(
-        uint16 year,
-        uint8 month
-    ) external payable onlyOwner returns (uint256 snapshotId) {
+        uint256 year,
+        uint256 month
+    ) external payable returns (uint256 snapshotId) {
+        require(msg.sender == tenant, "Only tenant allowed");
         require(msg.value >= rentAmount, "Insufficient Rent");
         require(month >= 1 && month <= 12, "Invalid Month");
-        require(year >= 2000 && year <= 3000, "Invalid Year");
+        require(year >= 2000 && year <= 10000, "Invalid Year");
 
         uint256 periodId = year * 100 + month;
         require(periodToSnapshot[periodId] == 0, "Period rent paid");
@@ -262,6 +271,10 @@ contract RwaToken is
         require(success, "Ether transfer failed");
 
         emit RentClaimed(snapshotToPeriod[snapshotId], msg.sender, payout);
+    }
+
+    function totalSnapshots() external view returns (uint256) {
+        return _getCurrentSnapshotId();
     }
 
     /*===============================RECEIVE===============================*/

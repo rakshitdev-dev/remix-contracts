@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/proxy/Clones.sol";
 import {IIdentityRegistry} from "./interfaces/IIdentityRegistry.sol";
 import {ILegalRegistry} from "./interfaces/ILegalRegistry.sol";
 import {IRwaToken} from "./interfaces/IRwaToken.sol";
-
+import {IBidContract} from "./interfaces/IBidInstance.sol";
 /*===============================MANAGER===============================*/
 
 /**
@@ -36,7 +36,7 @@ contract RwaManager is Ownable {
         address legalPropertyOwner;
     }
 
-    /*===============================STORAGE===============================*/
+    /*===============================RWA STORAGE===============================*/
 
     /// @dev RWA token implementation (EIP-1167)
     address public rwaImplementation;
@@ -52,10 +52,41 @@ contract RwaManager is Ownable {
     mapping(uint256 => address) public rwaByAsset;
 
     /// @dev List of all deployed RWA tokens
-    address[] private _allRWATokens;
+    address[] private allRWATokens;
 
     /// @dev Total deployed RWAs
     uint256 public totalRWAs;
+
+    /*===============================BID STORAGE===============================*/
+
+    struct BidInfo {
+        uint256 bidId;
+        uint256 assetId;
+        address bidContract;
+        address creator;
+        address seller;
+        address bidToken;
+        uint256 rewardAmount;
+        uint256 minTotalBid;
+        uint256 duration;
+        uint256 gracePeriod;
+        uint256 feeBps;
+        uint256 createdAt;
+    }
+
+    /// @dev Incremental bid ID
+    uint256 public totalBids;
+
+    /// @dev assetId => bidIds
+    mapping(uint256 => uint256[]) private _bidsByAsset;
+
+    /// @dev creator => bidIds
+    mapping(address => uint256[]) private _bidsByCreator;
+
+    /// @dev List of all bid IDs
+    uint256[] private _allBidIds;
+
+    uint256 bidGracePeriod;
 
     /*===============================EVENTS===============================*/
 
@@ -63,6 +94,13 @@ contract RwaManager is Ownable {
     event RwaImplementationUpdated(
         address indexed oldImpl,
         address indexed newImpl
+    );
+
+    event BidCreated(
+        uint256 indexed bidId,
+        uint256 indexed assetId,
+        address indexed bidContract,
+        address creator
     );
 
     /*===============================ERRORS===============================*/
@@ -81,24 +119,25 @@ contract RwaManager is Ownable {
     /*===============================CONSTRUCTOR===============================*/
 
     constructor(
-        address implementation_,
-        address legalRegistry_,
         address identityRegistry_,
-        address _bidImplementation,
+        address legalRegistry_,
+        address rwaImplementation_,
+        address bidImplementation_,
+        uint256 bidGracePeriod_,
         address initialOwner
     ) Ownable(initialOwner) {
         if (
-            implementation_ == address(0) ||
+            rwaImplementation_ == address(0) ||
             legalRegistry_ == address(0) ||
             identityRegistry_ == address(0)
         ) revert ZeroAddress();
 
-        rwaImplementation = implementation_;
-        legalRegistry = ILegalRegistry(legalRegistry_);
         identityRegistry = IIdentityRegistry(identityRegistry_);
-        bidImplementation = _bidImplementation;
+        legalRegistry = ILegalRegistry(legalRegistry_);
+        rwaImplementation = rwaImplementation_;
+        bidImplementation = bidImplementation_;
+        bidGracePeriod = bidGracePeriod_;
     }
-
 
     /*=====================================================================
                                 RWA MANAGEMENT
@@ -112,7 +151,6 @@ contract RwaManager is Ownable {
         rwaImplementation = newImpl;
         emit RwaImplementationUpdated(old, newImpl);
     }
-
 
     /*===============================CORE LOGIC===============================*/
 
@@ -174,7 +212,7 @@ contract RwaManager is Ownable {
         IRwaToken(token).initialize(params);
 
         rwaByAsset[assetId] = token;
-        _allRWATokens.push(token);
+        allRWATokens.push(token);
         totalRWAs++;
 
         emit RWACreated(assetId, token);
@@ -186,7 +224,7 @@ contract RwaManager is Ownable {
      * @notice Returns all deployed RWA token addresses.
      */
     function getAllRWATokens() external view returns (address[] memory) {
-        return _allRWATokens;
+        return allRWATokens;
     }
 
     /**
@@ -196,7 +234,7 @@ contract RwaManager is Ownable {
         uint256 page,
         uint256 limit
     ) external view returns (address[] memory result) {
-        uint256 total = _allRWATokens.length;
+        uint256 total = allRWATokens.length;
         uint256 start = page * limit;
         if (start >= total) return new address[](0);
 
@@ -205,7 +243,7 @@ contract RwaManager is Ownable {
 
         result = new address[](end - start);
         for (uint256 i = start; i < end; i++) {
-            result[i - start] = _allRWATokens[i];
+            result[i - start] = allRWATokens[i];
         }
     }
 
@@ -214,14 +252,14 @@ contract RwaManager is Ownable {
         view
         returns (RwaInfo[] memory result)
     {
-        return getRWAsWithData(0, _allRWATokens.length);
+        return getRWAsWithData(0, allRWATokens.length);
     }
 
     function getRWAsWithData(
         uint256 page,
         uint256 limit
     ) public view returns (RwaInfo[] memory result) {
-        uint256 total = _allRWATokens.length;
+        uint256 total = allRWATokens.length;
         uint256 start = page * limit;
 
         if (start >= total) return new RwaInfo[](0);
@@ -232,7 +270,7 @@ contract RwaManager is Ownable {
         result = new RwaInfo[](end - start);
 
         for (uint256 i = start; i < end; i++) {
-            address tokenAddr = _allRWATokens[i];
+            address tokenAddr = allRWATokens[i];
             IRwaToken rwa = IRwaToken(tokenAddr);
 
             uint256 assetId = rwa.assetId();
@@ -261,9 +299,56 @@ contract RwaManager is Ownable {
         }
     }
 
-     /*=====================================================================
+    /*=====================================================================
                                 BID MANAGEMENT
     =====================================================================*/
+
+    function createBid(
+        uint256 assetId,
+        uint256 rewardAmount,
+        uint256 minTotalBid,
+        uint256 duration,
+        uint256 feeBps
+    ) external returns (uint256 bidId, address bidAddress) {
+        if (bidImplementation == address(0)) revert ZeroAddress();
+
+        IIdentityRegistry.Identity memory sellerIdentiy = identityRegistry
+            .getIdentity(msg.sender);
+
+        uint256 requiredTime = duration + bidGracePeriod;
+
+        require(
+            sellerIdentiy.verifiedTill > (block.timestamp + requiredTime),
+            "Manager: IDENTITY_LIMIT_ERROR"
+        );
+        
+        address rwa = rwaByAsset[assetId];
+        if (rwa == address(0)) revert AssetNotApproved();
+
+        address bidToken = allRWATokens[assetId];
+
+        IBidContract.InitParams memory params = IBidContract.InitParams({
+            seller: msg.sender,
+            managerContract: address(this),
+            rewardAmount: rewardAmount,
+            bidToken: bidToken,
+            minTotalBid: minTotalBid,
+            duration: duration,
+            assetId: assetId,
+            gracePeriod: bidGracePeriod,
+            feeBps: feeBps
+        });
+
+        IBidContract(bidAddress).initialize(params);
+
+        bidId = ++totalBids;
+
+        _bidsByAsset[assetId].push(bidId);
+        _bidsByCreator[msg.sender].push(bidId);
+        _allBidIds.push(bidId);
+
+        emit BidCreated(bidId, assetId, bidAddress, msg.sender);
+    }
 
     /*===============================ETH HANDLING===============================*/
 

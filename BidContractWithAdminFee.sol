@@ -34,13 +34,15 @@ pragma solidity ^0.8.23;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IRwaManager} from "./interfaces/IRwaManager.sol";
 import {ILegalRegistry} from "./interfaces/ILegalRegistry.sol";
 import {IRwaToken} from "./interfaces/IRwaToken.sol";
 
-contract BidContract is Initializable, ReentrancyGuard {
+contract BidContract is ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     /*===============================CONSTANTS===============================*/
 
     /// @notice Fixed deposit percentage required to participate in auction
@@ -49,31 +51,31 @@ contract BidContract is Initializable, ReentrancyGuard {
     /*===============================AUCTION CONFIG===============================*/
 
     /// @notice Address receiving auction proceeds (usually asset owner)
-    address public seller;
+    address public immutable seller;
 
     /// @notice RWA manager contract handling assets and registry
-    IRwaManager public managerContract;
+    IRwaManager public immutable manager;
 
     /// @notice Asset identifier registered in legal registry
-    uint256 public assetId;
+    uint256 public immutable assetId;
 
     /// @notice Amount of RWA tokens rewarded to auction winner
-    uint256 public rewardAmount;
+    uint256 public immutable rewardAmount;
 
     /// @notice ERC20 token used for bidding (address(0) for native ETH)
-    IERC20 public bidToken;
+    IERC20 public immutable bidToken;
 
     /// @notice Minimum allowed total bid (not deposit)
-    uint256 public minTotalBid;
+    uint256 public immutable minTotalBid;
 
     /// @notice Auction end timestamp
-    uint256 public endTime;
+    uint256 public immutable endTime;
 
     /// @notice Last timestamp winner may complete remaining payment
-    uint256 public gracePeriodEnd;
+    uint256 public immutable gracePeriodEnd;
 
     /// @notice Platform fee in basis points (e.g. 200 = 2%)
-    uint256 public feeBps;
+    uint256 public immutable feeBps;
 
     /*===============================AUCTION STATE===============================*/
 
@@ -123,66 +125,57 @@ contract BidContract is Initializable, ReentrancyGuard {
         _;
     }
 
-    /*===============================INITIALIZER===============================*/
+    /*===============================CONSTRUCTOR===============================*/
 
     /**
      * @param _seller Address receiving auction proceeds
-     * @param _manager RWA managerContract contract
+     * @param _manager RWA manager contract
      * @param _rewardAmount Amount of RWA tokens awarded to winner
      * @param _bidToken ERC20 bidding token (address(0) for ETH)
      * @param _minTotalBid Minimum total bid amount (not deposit)
      * @param _duration Auction duration in seconds
      * @param _assetId Registered asset ID
-     * @param _gracePeriod Grace period to complete payment
+     * @param _gracePeriodDays Grace period (days) to complete payment
      * @param _feeBps Platform fee in basis points
      */
+    constructor(
+        address _seller,
+        address _manager,
+        uint256 _rewardAmount,
+        address _bidToken,
+        uint256 _minTotalBid,
+        uint256 _duration,
+        uint256 _assetId,
+        uint256 _gracePeriodDays,
+        uint256 _feeBps
+    ) {
+        require(_seller != address(0), "Invalid seller");
+        require(_manager != address(0), "Invalid manager");
+        require(_duration > 0, "Invalid duration");
+        require(_feeBps <= 1_000, "Fee too high");
 
-    struct InitParams {
-        address seller;
-        address managerContract;
-        uint256 rewardAmount;
-        address bidToken;
-        uint256 minTotalBid;
-        uint256 duration;
-        uint256 assetId;
-        uint256 gracePeriod;
-        uint256 feeBps;
-    }
+        seller = _seller;
+        manager = IRwaManager(_manager);
+        rewardAmount = _rewardAmount;
+        assetId = _assetId;
 
-    /**
-     * @notice Initializes the Bid Contract instance.
-     * @dev Called once by the factory or deployer.
-     */
-    function initialize(InitParams calldata params) external initializer {
-        require(params.seller != address(0), "Invalid seller");
-        require(params.managerContract != address(0), "Invalid manager");
-        require(params.duration > 0, "Invalid duration");
-        require(params.feeBps <= 1_000, "Fee too high");
-
-        seller = params.seller;
-        managerContract = IRwaManager(params.managerContract);
-        rewardAmount = params.rewardAmount;
-        assetId = params.assetId;
-
-        bidToken = IERC20(params.bidToken);
-        minTotalBid = params.minTotalBid;
-        endTime = block.timestamp + params.duration;
-        gracePeriodEnd = endTime + (params.gracePeriod);
-        feeBps = params.feeBps;
+        bidToken = IERC20(_bidToken);
+        minTotalBid = _minTotalBid;
+        endTime = block.timestamp + _duration;
+        gracePeriodEnd = endTime + (_gracePeriodDays * 1 days);
+        feeBps = _feeBps;
 
         require(
-            ILegalRegistry(managerContract.legalRegistry()).isAssetApproved(
-                assetId
-            ),
+            ILegalRegistry(manager.legalRegistry()).isAssetApproved(assetId),
             "Asset not approved"
         );
 
-        address rwa = managerContract.rwaByAsset(assetId);
-        require(rwa != address(0), "RWA token not deployed");
+        address rwa = manager.rwaByAsset(assetId);
+        require(rwa != address(0), "RWA not deployed");
 
         require(
-            IRwaToken(rwa).transferFrom(seller, address(this), rewardAmount),
-            "Reward escrow transfer failed"
+            IRwaToken(rwa).balanceOf(address(this)) >= rewardAmount,
+            "Reward not escrowed"
         );
     }
 
@@ -224,7 +217,7 @@ contract BidContract is Initializable, ReentrancyGuard {
      */
     function bidERC20(uint256 deposit) external nonReentrant auctionActive {
         require(!isNativeAuction(), "ERC20 disabled");
-        bidToken.transferFrom(msg.sender, address(this), deposit);
+        bidToken.safeTransferFrom(msg.sender, address(this), deposit);
         _placeBid(msg.sender, deposit);
     }
 
@@ -233,7 +226,7 @@ contract BidContract is Initializable, ReentrancyGuard {
      */
     function _placeBid(address bidder, uint256 deposit) internal {
         require(deposit > 0, "Zero deposit");
-        ILegalRegistry(managerContract.legalRegistry()).validateJurisdiction(
+        ILegalRegistry(manager.legalRegistry()).validateJurisdiction(
             msg.sender,
             assetId
         );
@@ -266,7 +259,7 @@ contract BidContract is Initializable, ReentrancyGuard {
         if (isNativeAuction()) {
             require(msg.value == remaining, "Invalid amount");
         } else {
-            bidToken.transferFrom(msg.sender, address(this), remaining);
+            bidToken.safeTransferFrom(msg.sender, address(this), remaining);
         }
 
         fullyPaid = true;
@@ -289,7 +282,7 @@ contract BidContract is Initializable, ReentrancyGuard {
         if (isNativeAuction()) {
             _safeNativeTransfer(msg.sender, amount);
         } else {
-            bidToken.transfer(msg.sender, amount);
+            bidToken.safeTransfer(msg.sender, amount);
         }
 
         emit DepositWithdrawn(msg.sender, amount);
@@ -308,7 +301,7 @@ contract BidContract is Initializable, ReentrancyGuard {
         require(!settled, "Already settled");
         settled = true;
 
-        address managerOwner = managerContract.owner();
+        address managerOwner = manager.owner();
         uint256 fee;
         uint256 sellerAmount;
 
@@ -320,7 +313,7 @@ contract BidContract is Initializable, ReentrancyGuard {
             _payout(seller, sellerAmount);
             _payout(managerOwner, fee);
 
-            IRwaToken(managerContract.rwaByAsset(assetId)).transfer(
+            IRwaToken(manager.rwaByAsset(assetId)).transfer(
                 highestBidder,
                 rewardAmount
             );
@@ -347,7 +340,7 @@ contract BidContract is Initializable, ReentrancyGuard {
         if (isNativeAuction()) {
             _safeNativeTransfer(to, amount);
         } else {
-            bidToken.transfer(to, amount);
+            bidToken.safeTransfer(to, amount);
         }
     }
 

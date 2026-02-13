@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.23;
+
+import {IIdentityRegistry} from "./IIdentityRegistry.sol";
 
 /**
  * @title ILegalRegistry
  * @author Rakshit Kumar Singh
- * @dev Interface MUST exactly match LegalRegistry ABI.
+ * @notice Interface for LegalRegistry contract
  *
- *      - Used by RwaManager and other system contracts
- *      - Provides read access to asset legal state
- *      - Exposes jurisdiction validation
+ * @dev
+ *  - Manages RWA jurisdiction validation
+ *  - Handles asset approval lifecycle
+ *  - Integrates with IdentityRegistry
  */
 interface ILegalRegistry {
     /*===============================ENUMS===============================*/
@@ -29,38 +32,33 @@ interface ILegalRegistry {
         AssetStatus status;
     }
 
-    /*===============================USER FUNCTIONS===============================*/
+    /*===============================EVENTS===============================*/
 
-    /**
-     * @notice Requests approval for a new asset.
-     */
-    function requestAsset(
-        string[] calldata countryCodes,
-        string calldata documentURI
-    ) external returns (uint256 assetId);
+    event AssetRequested(uint256 indexed assetId, address indexed owner);
+    event AssetReRequested(uint256 indexed assetId);
+    event AssetApproved(uint256 indexed assetId);
+    event AssetDisapproved(uint256 indexed assetId, string reason);
 
-    /**
-     * @notice Re-requests approval for a previously disapproved asset.
-     */
-    function reRequestAsset(
-        uint256 assetId,
-        string[] calldata countryCodes,
-        string calldata documentURI
-    ) external;
+    /*===============================ERRORS===============================*/
 
-    /*===============================COMPLIANCE===============================*/
-
-    /**
-     * @notice Validates whether a user is legally allowed
-     *         to interact with the given asset.
-     *
-     * @dev Reverts if jurisdiction or identity is invalid.
-     */
-    function validateJurisdiction(address user, uint256 assetId) external view;
+    error InvalidStatus();
+    error NotOwner();
+    error IdentityNotVerified();
+    error JurisdictionMismatch();
 
     /*===============================VIEWS===============================*/
 
-    function isAssetApproved(uint256 assetId) external view returns (bool);
+    function totalAssets() external view returns (uint256);
+
+    function identityRegistry()
+        external
+        view
+        returns (IIdentityRegistry);
+
+    function isAssetApproved(uint256 assetId)
+        external
+        view
+        returns (bool);
 
     function getAsset(
         uint256 assetId
@@ -73,4 +71,31 @@ interface ILegalRegistry {
             string memory documentURI,
             AssetStatus status
         );
+
+    function validateJurisdiction(
+        address user,
+        uint256 assetId
+    ) external view;
+
+    /*===============================USER FUNCTIONS===============================*/
+
+    function requestAsset(
+        string[] calldata countryCodes,
+        string calldata documentURI
+    ) external returns (uint256 assetId);
+
+    function reRequestAsset(
+        uint256 assetId,
+        string[] calldata countryCodes,
+        string calldata documentURI
+    ) external;
+
+    /*===============================ADMIN FUNCTIONS===============================*/
+
+    function approve(uint256 assetId) external;
+
+    function disapprove(
+        uint256 assetId,
+        string calldata reason
+    ) external;
 }

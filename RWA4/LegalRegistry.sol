@@ -48,6 +48,7 @@ contract LegalRegistry is Ownable {
 
     /*===============================ERRORS===============================*/
 
+    error InvalidId();
     error InvalidStatus();
     error NotOwner();
     error IdentityNotVerified();
@@ -105,6 +106,14 @@ contract LegalRegistry is Ownable {
         string[] calldata countryCodes,
         string calldata documentURI
     ) external returns (uint256 assetId) {
+        IIdentityRegistry.Identity memory iden = identityRegistry.getIdentity(
+            msg.sender
+        );
+
+        require(
+            iden.typ == IIdentityRegistry.IDENTITYTYPE.owner,
+            "Only property owner identity allowed"
+        );
         assetId = _nextAssetId++;
 
         Asset storage a = assets[assetId];
@@ -130,6 +139,15 @@ contract LegalRegistry is Ownable {
         string[] calldata countryCodes,
         string calldata documentURI
     ) external {
+        if (assetId < 1) revert InvalidId();
+        IIdentityRegistry.Identity memory iden = identityRegistry.getIdentity(
+            msg.sender
+        );
+
+        require(
+            iden.typ == IIdentityRegistry.IDENTITYTYPE.owner,
+            "Only property owner identity allowed"
+        );
         Asset storage a = assets[assetId];
 
         if (a.status != AssetStatus.DISAPPROVED) revert InvalidStatus();
@@ -151,19 +169,20 @@ contract LegalRegistry is Ownable {
 
     /*===============================ADMIN FUNCTIONS===============================*/
 
-    function approve(uint256 assetId) external onlyOwner {
-        if (assets[assetId].status != AssetStatus.REQUESTED)
+    function approveAsset(uint256 assetId) external onlyOwner {
+        if (assetId < 1) revert InvalidId();
+        if (assets[assetId].status != AssetStatus.REQUESTED && assets[assetId].status != AssetStatus.DISAPPROVED)
             revert InvalidStatus();
 
         assets[assetId].status = AssetStatus.APPROVED;
         emit AssetApproved(assetId);
     }
 
-    function disapprove(
+    function disapproveAsset(
         uint256 assetId,
         string calldata reason
     ) external onlyOwner {
-        if (assets[assetId].status != AssetStatus.REQUESTED)
+        if (assets[assetId].status != AssetStatus.REQUESTED && assets[assetId].status != AssetStatus.APPROVED)
             revert InvalidStatus();
 
         assets[assetId].status = AssetStatus.DISAPPROVED;
@@ -173,6 +192,7 @@ contract LegalRegistry is Ownable {
     /*===============================VIEWS===============================*/
 
     function isAssetApproved(uint256 assetId) external view returns (bool) {
+        if (assetId < 1) revert InvalidId();
         return assets[assetId].status == AssetStatus.APPROVED;
     }
 
@@ -188,6 +208,7 @@ contract LegalRegistry is Ownable {
             AssetStatus status
         )
     {
+        if (assetId < 1) revert InvalidId();
         Asset storage a = assets[assetId];
         return (a.propertyOwner, a.countryCodes, a.documentURI, a.status);
     }

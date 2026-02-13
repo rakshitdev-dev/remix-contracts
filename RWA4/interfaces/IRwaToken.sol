@@ -55,9 +55,7 @@ interface IRwaToken {
         uint256 snapshotId
     ) external view returns (uint256);
 
-    function periodToSnapshot(
-        uint256 period
-    ) external view returns (uint256);
+    function periodToSnapshot(uint256 period) external view returns (uint256);
 
     function snapshotToPeriod(
         uint256 snapshotId
@@ -98,8 +96,8 @@ interface IRwaToken {
      * @return snapshotId created snapshot
      */
     function payRent(
-        uint16 year,
-        uint8 month
+        uint256 year,
+        uint256 month
     ) external payable returns (uint256 snapshotId);
 
     /**
@@ -107,14 +105,23 @@ interface IRwaToken {
      * @param snapshotId snapshot identifier
      * @return payout ETH amount received
      */
-    function claimRent(
-        uint256 snapshotId
-    ) external returns (uint256 payout);
+    function claimRent(uint256 snapshotId) external returns (uint256 payout);
 
     /**
      * @notice ERC20 transfer
      */
-    function transfer(address to, uint256 value)
-        external
-        returns (bool);
+    function transfer(address to, uint256 value) external returns (bool);
+
+    /**
+     * @notice ERC20 transferFrom
+     * @param from token sender
+     * @param to token receiver
+     * @param value token amount
+     * @return success true if transfer succeeds
+     */
+    function transferFrom(
+        address from,
+        address to,
+        uint256 value
+    ) external returns (bool);
 }

@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.23;
 
 /**
  * @title IIdentityRegistry
  * @author Rakshit Kumar Singh
- * @dev Interface MUST exactly match IdentityRegistry ABI.
+ * @notice Interface for IdentityRegistry contract
  *
- *      - Used for identity and jurisdiction enforcement
- *      - Read-only access for external contracts
+ * @dev
+ *  - Provides on-chain identity verification for RWA ecosystem.
+ *  - Used by token, manager, and compliance contracts.
  */
 interface IIdentityRegistry {
     /*===============================ENUMS===============================*/
@@ -24,35 +25,78 @@ interface IIdentityRegistry {
         high
     }
 
-    enum INVESTORCLASS {
-        retail,
-        professional,
-        accredited
+    enum IDENTITYTYPE {
+        investor,
+        owner
     }
 
     /*===============================STRUCTS===============================*/
 
-    /**
-     * @dev Represents a verified on-chain identity.
-     */
     struct Identity {
-        uint256 verifiedTill; // Expiry timestamp
-        string identityURI; // Off-chain KYC reference
-        string countryCode; // ISO / jurisdiction code (e.g., IN, US, +91)
-        KYCLEVEL level; // KYC level
-        RISKSCOREBAND risk; // Risk band
-        INVESTORCLASS class; // Investor class
+        uint256 verifiedTill;
+        string identityURI;
+        string countryCode;
+        KYCLEVEL level;
+        RISKSCOREBAND risk;
+        IDENTITYTYPE typ;
     }
+
+    /*===============================EVENTS===============================*/
+
+    event IdentityRegistered(
+        address indexed user,
+        uint256 verifiedTill,
+        string countryCode,
+        string identityURI,
+        KYCLEVEL level,
+        RISKSCOREBAND risk,
+        IDENTITYTYPE typ
+    );
+
+    event IdentityUpdated(address indexed user);
+    event IdentityRevoked(address indexed user);
+
+    /*===============================ERRORS===============================*/
+
+    error ZeroAddress();
+    error IdentityAlreadyVerified();
+    error IdentityDoesNotExist();
+    error IdentityInvalid(address user);
 
     /*===============================VIEWS===============================*/
 
-    /**
-     * @notice Returns true if the identity exists and is not expired.
-     */
     function hasValidIdentity(address user) external view returns (bool);
 
-    /**
-     * @notice Returns full identity data for a user.
-     */
-    function getIdentity(address user) external view returns (Identity memory);
+    function getIdentity(address user)
+        external
+        view
+        returns (Identity memory);
+
+    function isInvestor(address user) external view returns (bool);
+
+    function isPropertyOwner(address user) external view returns (bool);
+
+    /*===============================ADMIN FUNCTIONS===============================*/
+
+    function registerIdentity(
+        address user,
+        uint256 verifiedTill,
+        string calldata identityURI,
+        string calldata countryCode,
+        KYCLEVEL level,
+        RISKSCOREBAND risk,
+        IDENTITYTYPE typ
+    ) external;
+
+    function updateIdentity(
+        address user,
+        uint256 newVerifiedTill,
+        string calldata newIdentityURI,
+        string calldata newCountryCode,
+        KYCLEVEL newLevel,
+        RISKSCOREBAND newRisk,
+        IDENTITYTYPE newTyp
+    ) external;
+
+    function revokeIdentity(address user) external;
 }

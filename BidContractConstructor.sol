@@ -1,6 +1,37 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
+/**
+ * @title BidContract
+ * @author Rakshit Kumar Singh
+ *
+ * @notice
+ * English-style auction contract for Real World Asset (RWA) tokens using
+ * a fixed 10% deposit mechanism.
+ *
+ * Bidders submit a 10% refundable deposit.
+ * Highest deposit implies highest total bid.
+ * Winner must pay remaining 90% within a grace period.
+ *
+ * If winner defaults:
+ * - Deposit is forfeited
+ * - RWA tokens are NOT transferred
+ *
+ * Losing bidders may withdraw deposits at any time after being outbid.
+ *
+ * Supports:
+ * - Native ETH auctions
+ * - ERC20-based auctions
+ *
+ * Designed for primary RWA sale flows with legal registry validation.
+ *
+ * @dev
+ * - Deposit percentage is fixed at 10%
+ * - Reward tokens must be escrowed before deployment
+ * - Uses pull-based withdrawals to avoid reentrancy
+ * - SafeERC20 is used for all ERC20 transfers
+ */
+
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -8,16 +39,6 @@ import {IRwaManager} from "./interfaces/IRwaManager.sol";
 import {ILegalRegistry} from "./interfaces/ILegalRegistry.sol";
 import {IRwaToken} from "./interfaces/IRwaToken.sol";
 
-/**
- * @title BidContract
- * @author Rakshit Kumar Singh
- * @notice English auction contract for RWA rewards
- *
- * Supports:
- * - Native ETH bidding OR ERC20 bidding
- * - Rewards paid in RWA ERC20 tokens
- * - LegalRegistry asset approval enforcement
- */
 contract BidContract is ReentrancyGuard {
     /* ========================== AUCTION CONFIG ========================== */
 

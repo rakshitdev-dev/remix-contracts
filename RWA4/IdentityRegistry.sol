@@ -30,14 +30,9 @@ contract IdentityRegistry is Ownable {
         high
     }
 
-    /**
-     * @dev Investor classification assigned off-chain by the administrator.
-     *      This enum is informational and not enforced by on-chain logic.
-     */
-    enum INVESTORCLASS {
-        retail,
-        professional,
-        accredited
+    enum IDENTITYTYPE {
+        investor,
+        owner
     }
 
     /*===============================STRUCTS===============================*/
@@ -46,12 +41,12 @@ contract IdentityRegistry is Ownable {
      * @dev Represents a verified on-chain identity.
      */
     struct Identity {
-        uint256 verifiedTill;      // Expiry timestamp
-        string identityURI;        // Off-chain KYC reference
-        string countryCode;        // ISO / jurisdiction code (e.g., IN, US, +91)
-        KYCLEVEL level;            // KYC level
-        RISKSCOREBAND risk;        // Risk band
-        INVESTORCLASS class;       // Investor class
+        uint256 verifiedTill; // Expiry timestamp
+        string identityURI; // Off-chain KYC reference
+        string countryCode; // ISO / jurisdiction code (e.g., IN, US, +91)
+        KYCLEVEL level; // KYC level
+        RISKSCOREBAND risk; // Risk band
+        IDENTITYTYPE typ;
     }
 
     /*===============================STORAGE===============================*/
@@ -67,7 +62,7 @@ contract IdentityRegistry is Ownable {
         string identityURI,
         KYCLEVEL level,
         RISKSCOREBAND risk,
-        INVESTORCLASS class
+        IDENTITYTYPE typ
     );
 
     event IdentityUpdated(address indexed user);
@@ -91,7 +86,9 @@ contract IdentityRegistry is Ownable {
      */
     function hasValidIdentity(address user) public view returns (bool) {
         Identity storage identity = _identities[user];
-        return identity.verifiedTill != 0 && identity.verifiedTill >= block.timestamp;
+        return
+            identity.verifiedTill != 0 &&
+            identity.verifiedTill >= block.timestamp;
     }
 
     /**
@@ -117,10 +114,10 @@ contract IdentityRegistry is Ownable {
         string calldata countryCode,
         KYCLEVEL level,
         RISKSCOREBAND risk,
-        INVESTORCLASS class
+        IDENTITYTYPE typ
     ) external onlyOwner {
         if (user == address(0)) revert ZeroAddress();
-        if (_identities[user].verifiedTill != 0)
+        if (_identities[user].verifiedTill > block.timestamp)
             revert IdentityAlreadyVerified();
 
         _identities[user] = Identity({
@@ -129,7 +126,7 @@ contract IdentityRegistry is Ownable {
             countryCode: countryCode,
             level: level,
             risk: risk,
-            class: class
+            typ: typ
         });
 
         emit IdentityRegistered(
@@ -139,7 +136,7 @@ contract IdentityRegistry is Ownable {
             identityURI,
             level,
             risk,
-            class
+            typ
         );
     }
 
@@ -154,10 +151,9 @@ contract IdentityRegistry is Ownable {
         string calldata newCountryCode,
         KYCLEVEL newLevel,
         RISKSCOREBAND newRisk,
-        INVESTORCLASS newClass
+        IDENTITYTYPE newTyp
     ) external onlyOwner {
-        if (_identities[user].verifiedTill == 0)
-            revert IdentityDoesNotExist();
+        if (_identities[user].verifiedTill == 0) revert IdentityDoesNotExist();
 
         Identity storage identity = _identities[user];
 
@@ -166,7 +162,7 @@ contract IdentityRegistry is Ownable {
         identity.countryCode = newCountryCode;
         identity.level = newLevel;
         identity.risk = newRisk;
-        identity.class = newClass;
+        identity.typ = newTyp;
 
         emit IdentityUpdated(user);
     }
@@ -176,8 +172,7 @@ contract IdentityRegistry is Ownable {
      * @dev Only callable by the contract owner.
      */
     function revokeIdentity(address user) external onlyOwner {
-        if (_identities[user].verifiedTill == 0)
-            revert IdentityDoesNotExist();
+        if (_identities[user].verifiedTill == 0) revert IdentityDoesNotExist();
 
         delete _identities[user];
         emit IdentityRevoked(user);
@@ -188,14 +183,43 @@ contract IdentityRegistry is Ownable {
     /**
      * @notice Returns full identity data for a user.
      */
-    function getIdentity(address user)
-        external
-        view
-        returns (Identity memory)
-    {
-        if (_identities[user].verifiedTill == 0)
-            revert IdentityDoesNotExist();
+    function getIdentity(address user) external view returns (Identity memory) {
+        if (_identities[user].verifiedTill == 0) revert IdentityDoesNotExist();
 
         return _identities[user];
+    }
+
+    /**
+     * @notice Returns true if user has a valid INVESTOR identity.
+     * @dev Must exist, not be expired, and type == investor.
+     */
+    function isInvestor(address user) external view returns (bool) {
+        Identity storage identity = _identities[user];
+
+        if (
+            identity.verifiedTill == 0 ||
+            identity.verifiedTill < block.timestamp
+        ) {
+            return false;
+        }
+
+        return identity.typ == IDENTITYTYPE.investor;
+    }
+
+    /**
+     * @notice Returns true if user has a valid PROPERTY OWNER identity.
+     * @dev Must exist, not be expired, and type == owner.
+     */
+    function isPropertyOwner(address user) external view returns (bool) {
+        Identity storage identity = _identities[user];
+
+        if (
+            identity.verifiedTill == 0 ||
+            identity.verifiedTill < block.timestamp
+        ) {
+            return false;
+        }
+
+        return identity.typ == IDENTITYTYPE.owner;
     }
 }
