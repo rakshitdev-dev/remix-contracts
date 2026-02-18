@@ -34,6 +34,8 @@ contract RwaManager is Ownable {
         string documentURI;
         string[] countryCodes;
         address legalPropertyOwner;
+        uint256 rentAmount;
+        address tenant;
     }
 
     /*===============================RWA STORAGE===============================*/
@@ -57,34 +59,32 @@ contract RwaManager is Ownable {
     /// @dev Total deployed RWAs
     uint256 public totalRWAs;
 
+    uint256 bidFee;
+
     /*===============================BID STORAGE===============================*/
 
     struct BidInfo {
-        uint256 bidId;
-        uint256 assetId;
         address bidContract;
-        address creator;
         address seller;
-        address bidToken;
+        address managerContract;
+        uint256 assetId;
         uint256 rewardAmount;
+        address priceToken;
         uint256 minTotalBid;
-        uint256 duration;
-        uint256 gracePeriod;
+        uint256 endTime;
+        uint256 gracePeriodEnd;
         uint256 feeBps;
-        uint256 createdAt;
+        address highestBidder;
+        uint256 highestDeposit;
+        bool settled;
+        bool fullyPaid;
+        bool isNativeAuction;
+        uint256 remainingPayment;
     }
 
-    /// @dev Incremental bid ID
-    uint256 public totalBids;
-
-    /// @dev assetId => bidIds
-    mapping(uint256 => uint256[]) private _bidsByAsset;
-
-    /// @dev creator => bidIds
-    mapping(address => uint256[]) private _bidsByCreator;
-
-    /// @dev List of all bid IDs
-    uint256[] private _allBidIds;
+    /// @dev List of all bid Contracts
+    address[] private allBids;
+    mapping(address => bool) public isBidContract;
 
     uint256 bidGracePeriod;
 
@@ -95,7 +95,12 @@ contract RwaManager is Ownable {
         address indexed oldImpl,
         address indexed newImpl
     );
-
+    event BidImplementationUpdated(
+        address indexed oldImpl,
+        address indexed newImpl
+    );
+    event BidGracePeriodUpdated(uint256 oldTime, uint256 newTime);
+    event BidFeeUpdated(uint256 oldFee, uint256 newFee);
     event BidCreated(
         uint256 indexed bidId,
         uint256 indexed assetId,
@@ -109,6 +114,7 @@ contract RwaManager is Ownable {
     error AssetNotApproved();
     error AlreadyTokenized();
     error InvalidDistribution();
+    error InvalidAddress();
     error IdentityMissing(address user);
     error CountryMismatch(
         address user,
@@ -124,6 +130,7 @@ contract RwaManager is Ownable {
         address rwaImplementation_,
         address bidImplementation_,
         uint256 bidGracePeriod_,
+        uint256 bidFee_,
         address initialOwner
     ) Ownable(initialOwner) {
         if (
@@ -137,6 +144,7 @@ contract RwaManager is Ownable {
         rwaImplementation = rwaImplementation_;
         bidImplementation = bidImplementation_;
         bidGracePeriod = bidGracePeriod_;
+        bidFee = bidFee_;
     }
 
     /*=====================================================================
@@ -150,6 +158,27 @@ contract RwaManager is Ownable {
         address old = rwaImplementation;
         rwaImplementation = newImpl;
         emit RwaImplementationUpdated(old, newImpl);
+    }
+
+    function updateBidImplementation(address newImpl) external onlyOwner {
+        if (newImpl == address(0)) revert ZeroAddress();
+        address old = bidImplementation;
+        bidImplementation = newImpl;
+        emit BidImplementationUpdated(old, newImpl);
+    }
+
+    function updateBidGracePeriod(
+        uint256 newBidGracePeriod
+    ) external onlyOwner {
+        uint256 old = bidGracePeriod;
+        bidGracePeriod = newBidGracePeriod;
+        emit BidGracePeriodUpdated(old, newBidGracePeriod);
+    }
+
+    function updateBidFee(uint256 newBidFee) external onlyOwner {
+        uint256 old = bidGracePeriod;
+        bidFee = newBidFee;
+        emit BidFeeUpdated(old, newBidFee);
     }
 
     /*===============================CORE LOGIC===============================*/
@@ -178,8 +207,8 @@ contract RwaManager is Ownable {
 
         if (propertyOwner == address(0)) revert ZeroAddress();
         require(
-            propertyOwner != _msgSender() || owner() != _msgSender(),
-            "Only Admin or a Property Owner could create"
+            _msgSender() == propertyOwner || _msgSender() == owner(),
+            "Only Admin or Property Owner"
         );
 
         if (status != ILegalRegistry.AssetStatus.APPROVED)
@@ -294,9 +323,44 @@ contract RwaManager is Ownable {
                 status: status,
                 documentURI: documentURI,
                 countryCodes: countryCodes,
-                legalPropertyOwner: legalOwner
+                legalPropertyOwner: legalOwner,
+                rentAmount: rwa.rentAmount(),
+                tenant: rwa.tenant()
             });
         }
+    }
+
+    function getRwaWithDataByAddetId(
+        uint256 assetId
+    ) public view returns (RwaInfo memory result) {
+        address tokenAddr = rwaByAsset[assetId];
+        if (tokenAddr == address(0)) revert ZeroAddress();
+
+        IRwaToken rwa = IRwaToken(tokenAddr);
+
+        (
+            address legalOwner,
+            string[] memory countryCodes,
+            string memory documentURI,
+            ILegalRegistry.AssetStatus status
+        ) = legalRegistry.getAsset(assetId);
+
+        result = RwaInfo({
+            token: tokenAddr,
+            assetId: assetId,
+            name: rwa.name(),
+            symbol: rwa.symbol(),
+            cap: rwa.cap(),
+            price: rwa.price(),
+            propertyManager: rwa.owner(),
+            totalSupply: rwa.totalSupply(),
+            status: status,
+            documentURI: documentURI,
+            countryCodes: countryCodes,
+            legalPropertyOwner: legalOwner,
+            rentAmount: rwa.rentAmount(),
+            tenant: rwa.tenant()
+        });
     }
 
     /*=====================================================================
@@ -308,8 +372,8 @@ contract RwaManager is Ownable {
         uint256 rewardAmount,
         uint256 minTotalBid,
         uint256 duration,
-        uint256 feeBps
-    ) external returns (uint256 bidId, address bidAddress) {
+        address priceToken
+    ) external returns (address bidAddress) {
         if (bidImplementation == address(0)) revert ZeroAddress();
 
         IIdentityRegistry.Identity memory sellerIdentiy = identityRegistry
@@ -321,33 +385,97 @@ contract RwaManager is Ownable {
             sellerIdentiy.verifiedTill > (block.timestamp + requiredTime),
             "Manager: IDENTITY_LIMIT_ERROR"
         );
-        
-        address rwa = rwaByAsset[assetId];
-        if (rwa == address(0)) revert AssetNotApproved();
 
-        address bidToken = allRWATokens[assetId];
+        bidAddress = bidImplementation.clone();
 
         IBidContract.InitParams memory params = IBidContract.InitParams({
             seller: msg.sender,
             managerContract: address(this),
             rewardAmount: rewardAmount,
-            bidToken: bidToken,
+            priceToken: priceToken,
             minTotalBid: minTotalBid,
             duration: duration,
             assetId: assetId,
             gracePeriod: bidGracePeriod,
-            feeBps: feeBps
+            feeBps: bidFee
         });
 
         IBidContract(bidAddress).initialize(params);
 
-        bidId = ++totalBids;
+        address rwa = rwaByAsset[assetId];
 
-        _bidsByAsset[assetId].push(bidId);
-        _bidsByCreator[msg.sender].push(bidId);
-        _allBidIds.push(bidId);
+        uint256 bidId = allBids.length;
+        allBids.push(bidAddress);
+        isBidContract[bidAddress] = true;
+
+        require(
+            IRwaToken(rwa).transferFrom(msg.sender, bidAddress, rewardAmount),
+            "Reward escrow transfer failed"
+        );
 
         emit BidCreated(bidId, assetId, bidAddress, msg.sender);
+    }
+
+    function getBidInfoByAddress(
+        address bidAddress
+    ) public view returns (BidInfo memory info) {
+        if (bidAddress == address(0)) revert ZeroAddress();
+
+        IBidContract bid = IBidContract(bidAddress);
+
+        if (bid.managerContract() != address(this)) {
+            revert InvalidAddress();
+        }
+
+        info = BidInfo({
+            bidContract: bidAddress,
+            seller: bid.seller(),
+            managerContract: address(this),
+            assetId: bid.assetId(),
+            rewardAmount: bid.rewardAmount(),
+            priceToken: address(bid.priceToken()),
+            minTotalBid: bid.minTotalBid(),
+            endTime: bid.endTime(),
+            gracePeriodEnd: bid.gracePeriodEnd(),
+            feeBps: bid.feeBps(),
+            highestBidder: bid.highestBidder(),
+            highestDeposit: bid.highestDeposit(),
+            settled: bid.settled(),
+            fullyPaid: bid.fullyPaid(),
+            isNativeAuction: bid.isNativeAuction(),
+            remainingPayment: bid.remainingPayment()
+        });
+    }
+
+    function getBidInfoById(
+        uint256 bidId
+    ) public view returns (BidInfo memory info) {
+        if (bidId >= allBids.length) revert ILegalRegistry.InvalidId();
+        return getBidInfoByAddress(allBids[bidId]);
+    }
+
+    function getBidsInfo(
+        uint256 page,
+        uint256 limit
+    ) public view returns (BidInfo[] memory result) {
+        uint256 total = allBids.length;
+        uint256 start = page * limit;
+
+        if (start >= total) return new BidInfo[](0);
+
+        uint256 end = start + limit;
+        if (end > total) end = total;
+
+        result = new BidInfo[](end - start);
+
+        for (uint256 i = start; i < end; i++) {
+            address bidAddr = allBids[i];
+            result[i - start] = getBidInfoByAddress(bidAddr);
+        }
+    }
+
+    function getAllBidsInfo() public view returns (BidInfo[] memory result) {
+        return getBidsInfo(0, allBids.length);
     }
 
     /*===============================ETH HANDLING===============================*/

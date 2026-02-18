@@ -139,10 +139,14 @@ contract RwaToken is
             return;
         }
 
-        // if (from == address(owner())) {
-        //     super._update(from, to, amount);
-        //     return;
-        // }
+        if (from == address(managerContract)) {
+            super._update(from, to, amount);
+            return;
+        }
+        if (managerContract.isBidContract(from)) {
+            super._update(from, to, amount);
+            return;
+        }
 
         // Burning
         if (to == address(0)) {
@@ -153,6 +157,8 @@ contract RwaToken is
             super._update(from, to, amount);
             return;
         }
+
+
 
         // Identity enforcement
         if (!_identityRegistry().hasValidIdentity(from))

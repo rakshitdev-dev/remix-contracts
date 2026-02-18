@@ -13,7 +13,7 @@ interface IBidContract {
         address seller;
         address managerContract;
         uint256 rewardAmount;
-        address bidToken;
+        address priceToken;
         uint256 minTotalBid;
         uint256 duration;
         uint256 assetId;
@@ -27,7 +27,7 @@ interface IBidContract {
     function managerContract() external view returns (address);
     function assetId() external view returns (uint256);
     function rewardAmount() external view returns (uint256);
-    function bidToken() external view returns (IERC20);
+    function priceToken() external view returns (IERC20);
     function minTotalBid() external view returns (uint256);
     function endTime() external view returns (uint256);
     function gracePeriodEnd() external view returns (uint256);

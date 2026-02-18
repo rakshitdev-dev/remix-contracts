@@ -45,6 +45,7 @@ interface ILegalRegistry {
     error NotOwner();
     error IdentityNotVerified();
     error JurisdictionMismatch();
+    error InvalidId();
 
     /*===============================VIEWS===============================*/
 

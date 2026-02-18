@@ -74,6 +74,8 @@ interface IRwaManager {
 
     function identityRegistry() external view returns (IIdentityRegistry);
 
+    function isBidContract(address bidAddress) external view returns (bool);
+
     function rwaByAsset(uint256 assetId) external view returns (address);
 
     function totalRWAs() external view returns (uint256);

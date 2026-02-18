@@ -61,7 +61,7 @@ contract BidContract is Initializable, ReentrancyGuard {
     uint256 public rewardAmount;
 
     /// @notice ERC20 token used for bidding (address(0) for native ETH)
-    IERC20 public bidToken;
+    IERC20 public priceToken;
 
     /// @notice Minimum allowed total bid (not deposit)
     uint256 public minTotalBid;
@@ -129,7 +129,7 @@ contract BidContract is Initializable, ReentrancyGuard {
      * @param _seller Address receiving auction proceeds
      * @param _manager RWA managerContract contract
      * @param _rewardAmount Amount of RWA tokens awarded to winner
-     * @param _bidToken ERC20 bidding token (address(0) for ETH)
+     * @param _priceToken ERC20 bidding token (address(0) for ETH)
      * @param _minTotalBid Minimum total bid amount (not deposit)
      * @param _duration Auction duration in seconds
      * @param _assetId Registered asset ID
@@ -141,7 +141,7 @@ contract BidContract is Initializable, ReentrancyGuard {
         address seller;
         address managerContract;
         uint256 rewardAmount;
-        address bidToken;
+        address priceToken;
         uint256 minTotalBid;
         uint256 duration;
         uint256 assetId;
@@ -164,7 +164,7 @@ contract BidContract is Initializable, ReentrancyGuard {
         rewardAmount = params.rewardAmount;
         assetId = params.assetId;
 
-        bidToken = IERC20(params.bidToken);
+        priceToken = IERC20(params.priceToken);
         minTotalBid = params.minTotalBid;
         endTime = block.timestamp + params.duration;
         gracePeriodEnd = endTime + (params.gracePeriod);
@@ -179,18 +179,13 @@ contract BidContract is Initializable, ReentrancyGuard {
 
         address rwa = managerContract.rwaByAsset(assetId);
         require(rwa != address(0), "RWA token not deployed");
-
-        require(
-            IRwaToken(rwa).transferFrom(seller, address(this), rewardAmount),
-            "Reward escrow transfer failed"
-        );
     }
 
     /*===============================VIEWS===============================*/
 
     /// @notice Returns true if auction uses native ETH
     function isNativeAuction() public view returns (bool) {
-        return address(bidToken) == address(0);
+        return address(priceToken) == address(0);
     }
 
     /**
@@ -224,7 +219,7 @@ contract BidContract is Initializable, ReentrancyGuard {
      */
     function bidERC20(uint256 deposit) external nonReentrant auctionActive {
         require(!isNativeAuction(), "ERC20 disabled");
-        bidToken.transferFrom(msg.sender, address(this), deposit);
+        priceToken.transferFrom(msg.sender, address(this), deposit);
         _placeBid(msg.sender, deposit);
     }
 
@@ -266,7 +261,7 @@ contract BidContract is Initializable, ReentrancyGuard {
         if (isNativeAuction()) {
             require(msg.value == remaining, "Invalid amount");
         } else {
-            bidToken.transferFrom(msg.sender, address(this), remaining);
+            priceToken.transferFrom(msg.sender, address(this), remaining);
         }
 
         fullyPaid = true;
@@ -289,7 +284,7 @@ contract BidContract is Initializable, ReentrancyGuard {
         if (isNativeAuction()) {
             _safeNativeTransfer(msg.sender, amount);
         } else {
-            bidToken.transfer(msg.sender, amount);
+            priceToken.transfer(msg.sender, amount);
         }
 
         emit DepositWithdrawn(msg.sender, amount);
@@ -347,7 +342,7 @@ contract BidContract is Initializable, ReentrancyGuard {
         if (isNativeAuction()) {
             _safeNativeTransfer(to, amount);
         } else {
-            bidToken.transfer(to, amount);
+            priceToken.transfer(to, amount);
         }
     }
 
