@@ -143,7 +143,13 @@ contract RwaToken is
             super._update(from, to, amount);
             return;
         }
+        
         if (managerContract.isBidContract(from)) {
+            super._update(from, to, amount);
+            return;
+        }
+
+        if (managerContract.isBidContract(to)) {
             super._update(from, to, amount);
             return;
         }

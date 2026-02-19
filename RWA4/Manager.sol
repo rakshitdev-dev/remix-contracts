@@ -83,7 +83,7 @@ contract RwaManager is Ownable {
     }
 
     /// @dev List of all bid Contracts
-    address[] private allBids;
+    address[] public allBids;
     mapping(address => bool) public isBidContract;
 
     uint256 bidGracePeriod;
@@ -330,7 +330,7 @@ contract RwaManager is Ownable {
         }
     }
 
-    function getRwaWithDataByAddetId(
+    function getRwaWithDataByAssetId(
         uint256 assetId
     ) public view returns (RwaInfo memory result) {
         address tokenAddr = rwaByAsset[assetId];
